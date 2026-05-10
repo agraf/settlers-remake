@@ -151,15 +151,27 @@ public class VulkanSurfaceOutput extends AbstractVulkanOutput {
 			return null;
 		}
 
+		VkExtent2D minDim = surfaceCapabilities.minImageExtent();
+		VkExtent2D maxDim = surfaceCapabilities.maxImageExtent();
+		VkExtent2D curDim = surfaceCapabilities.currentExtent();
+
+		// Prefer currentExtent when the surface dictates one (typical on Windows/Linux). On
+		// macOS / MoltenVK, currentExtent reports 0xFFFFFFFF for "any" early on, in which case
+		// we fall back to the caller's preferred size (the canvas size in pixels).
 		int fbWidth = preferredSize.width;
 		int fbHeight = preferredSize.height;
-		int imageCount = surfaceCapabilities.minImageCount() + 1;
-
-		VkExtent2D minDim = surfaceCapabilities.maxImageExtent();
-		VkExtent2D maxDim = surfaceCapabilities.maxImageExtent();
+		// Vulkan signals "any" with 0xFFFFFFFF (== -1 as a Java signed int).
+		if (curDim.width() != -1) {
+			fbWidth = curDim.width();
+		}
+		if (curDim.height() != -1) {
+			fbHeight = curDim.height();
+		}
 
 		fbWidth = Math.max(Math.min(fbWidth, maxDim.width()), minDim.width());
 		fbHeight = Math.max(Math.min(fbHeight, maxDim.height()), minDim.height());
+
+		int imageCount = surfaceCapabilities.minImageCount() + 1;
 		if (surfaceCapabilities.maxImageCount() != 0)
 			imageCount = Math.min(imageCount, surfaceCapabilities.maxImageCount());
 
@@ -171,10 +183,12 @@ public class VulkanSurfaceOutput extends AbstractVulkanOutput {
 				.height(fbHeight);
 
 		LongBuffer swapchainBfr = BufferUtils.createLongBuffer(1);
-		boolean error = vkCreateSwapchainKHR(dc.getDevice(), swapchainCreateInfo, null, swapchainBfr) != VK_SUCCESS;
+		int createErr = vkCreateSwapchainKHR(dc.getDevice(), swapchainCreateInfo, null, swapchainBfr);
+		boolean error = createErr != VK_SUCCESS;
 		vkDestroySwapchainKHR(dc.getDevice(), swapchain, null);
 
 		if (error) {
+			System.err.println("[VK-SC] vkCreateSwapchainKHR failed: " + createErr);
 			swapchain = VK_NULL_HANDLE;
 			return null;
 		}
@@ -262,6 +276,7 @@ public class VulkanSurfaceOutput extends AbstractVulkanOutput {
 			dc.resize();
 		}
 		if(err != VK_SUBOPTIMAL_KHR && err != VK_SUCCESS) {
+			System.err.println("[VK-FRAME] vkAcquireNextImageKHR failed: " + err);
 			return false;
 		}
 
@@ -285,8 +300,9 @@ public class VulkanSurfaceOutput extends AbstractVulkanOutput {
 				presentInfo.pWaitSemaphores(stack.longs(signalSemaphore));
 			}
 
-			if (vkQueuePresentKHR(dc.queueManager.getPresentQueue(), presentInfo) != VK_SUCCESS) {
-				// should not happen but we can't do anything about it
+			int presentErr = vkQueuePresentKHR(dc.queueManager.getPresentQueue(), presentInfo);
+			if (presentErr != VK_SUCCESS) {
+				System.err.println("[VK-FRAME] vkQueuePresentKHR FAILED: " + presentErr);
 			}
 		}
 		vkQueueWaitIdle(dc.queueManager.getPresentQueue());

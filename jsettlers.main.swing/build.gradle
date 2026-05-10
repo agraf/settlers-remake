@@ -30,6 +30,13 @@ startScripts {
 
 mainClassName = 'jsettlers.main.swing.SwingManagedJSettlers'
 
+run {
+	if (System.getenv('JSETTLERS_LWJGL_DEBUG') == '1' || System.getProperty('jsettlers.lwjgl.debug') == 'true') {
+		systemProperty 'org.lwjgl.util.Debug', 'true'
+		systemProperty 'org.lwjgl.util.DebugLoader', 'true'
+	}
+}
+
 dependencies {
 	implementation project(':go.graphics')
 	implementation project(':go.graphics.swing')
