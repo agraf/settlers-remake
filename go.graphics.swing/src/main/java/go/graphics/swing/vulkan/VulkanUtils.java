@@ -45,6 +45,8 @@ import org.lwjgl.vulkan.VkImageViewCreateInfo;
 import org.lwjgl.vulkan.VkInstance;
 import org.lwjgl.vulkan.VkInstanceCreateInfo;
 import org.lwjgl.vulkan.VkLayerProperties;
+import org.lwjgl.vulkan.VkLayerSettingEXT;
+import org.lwjgl.vulkan.VkLayerSettingsCreateInfoEXT;
 import org.lwjgl.vulkan.VkPhysicalDevice;
 import org.lwjgl.vulkan.VkPhysicalDeviceFeatures;
 import org.lwjgl.vulkan.VkPipelineColorBlendAttachmentState;
@@ -86,6 +88,9 @@ import go.graphics.EPrimitiveType;
 import org.lwjgl.system.Platform;
 
 import static org.lwjgl.vulkan.EXTDebugReport.*;
+import static org.lwjgl.vulkan.EXTLayerSettings.VK_EXT_LAYER_SETTINGS_EXTENSION_NAME;
+import static org.lwjgl.vulkan.EXTLayerSettings.VK_LAYER_SETTING_TYPE_BOOL32_EXT;
+import static org.lwjgl.vulkan.EXTLayerSettings.VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT;
 import static org.lwjgl.vulkan.EXTMetalSurface.VK_EXT_METAL_SURFACE_EXTENSION_NAME;
 import static org.lwjgl.vulkan.KHRPortabilityEnumeration.VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 import static org.lwjgl.vulkan.KHRPortabilityEnumeration.VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
@@ -149,6 +154,14 @@ public class VulkanUtils {
 			if(available.contains(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
 				extensions.add(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 			}
+			// VK_EXT_layer_settings lets us push MoltenVK config values through the standard
+			// Vulkan channel instead of relying on MVK_CONFIG_* environment variables, which
+			// are awkward to set from inside the JVM (especially when launched via Gradle/IDE).
+			// We use it to disable Metal argument buffers, which currently break our quad
+			// rendering path on Apple Silicon. Available in MoltenVK 1.2.7+.
+			if(available.contains(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME)) {
+				extensions.add(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+			}
 			// Always pull in the debug report extension on macOS even without --debug-opengl:
 			// MoltenVK has no validation layers shipped, but it still posts API misuse and
 			// device-loss messages through this callback. Without it, failures (e.g. an invalid
@@ -206,8 +219,34 @@ public class VulkanUtils {
 			instanceFlags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 		}
 
+		long pNext = 0L;
+		// On macOS, when VK_EXT_layer_settings is available, push MoltenVK configuration through
+		// the pNext chain. This is the standard Vulkan channel for layer/driver configuration and
+		// is read by MoltenVK before any instance state is created — which is the only point at
+		// which MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS can still be changed. We disable Metal
+		// argument buffers because they currently cause MoltenVK to emit broken Metal command
+		// streams for our triangle-list quad path on Apple Silicon (black gameplay canvas).
+		if(Platform.get() == Platform.MACOSX && extensions.contains(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME)) {
+			ByteBuffer layerName = stack.UTF8("MoltenVK");
+			ByteBuffer settingName = stack.UTF8("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS");
+			ByteBuffer settingValue = stack.calloc(4); // VkBool32 = 4 bytes, all zero == VK_FALSE
+
+			VkLayerSettingEXT.Buffer settings = VkLayerSettingEXT.calloc(1, stack)
+					.pLayerName(layerName)
+					.pSettingName(settingName)
+					.type(VK_LAYER_SETTING_TYPE_BOOL32_EXT)
+					.valueCount(1)
+					.pValues(settingValue);
+
+			VkLayerSettingsCreateInfoEXT layerSettings = VkLayerSettingsCreateInfoEXT.calloc(stack)
+					.sType(VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT)
+					.pSettings(settings);
+			pNext = layerSettings.address();
+		}
+
 		VkInstanceCreateInfo createInfo = VkInstanceCreateInfo.calloc(stack)
 				.sType(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO)
+				.pNext(pNext)
 				.flags(instanceFlags)
 				.pApplicationInfo(applicationInfo)
 				.ppEnabledExtensionNames(extensionsPointer)

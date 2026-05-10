@@ -68,7 +68,7 @@ JSettlers runs natively on Apple Silicon (M1/M2/M3) and Intel Macs. Rendering go
 There is also a convenience launcher at `scripts/run-jsettlers-macos-vulkan.sh` that probes the Homebrew install of MoltenVK, sets the relevant `MVK_CONFIG_*` env vars known to misbehave on Apple Silicon, and starts the game via Gradle. It is the easiest way to run from a fresh checkout.
 
 ##### macOS troubleshooting
-- **Solid black gameplay screen** on Apple Silicon usually means MoltenVK's Metal-argument-buffers path is biting you. The launcher script sets `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0` for that reason; if you start the binary by hand, set the same env var.
+- **Solid black gameplay screen** on Apple Silicon usually means MoltenVK's Metal-argument-buffers path is biting you. JSettlers requests `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0` via `VK_EXT_layer_settings` during `vkCreateInstance`, which is the supported in-process channel for MoltenVK 1.2.7+. If you're on an older MoltenVK or the extension isn't advertised, set the same value via env var (`MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0`) before launching; the launcher script does this for you.
 - **`vkCreateInstance failed`** at startup means MoltenVK could not be loaded. Verify `brew list molten-vk` and confirm `libMoltenVK.dylib` is present in `/opt/homebrew/lib` (Apple Silicon) or `/usr/local/lib` (Intel).
 - For more verbose diagnostics, set `MVK_CONFIG_LOG_LEVEL=3` (info) or `4` (verbose) before launching.
 - Other backends (`-Dgo.graphics.backend=lwjglx-gl` or `=jogl`) compile and start, but currently render to a black canvas on macOS 14+; treat them as developer-only.

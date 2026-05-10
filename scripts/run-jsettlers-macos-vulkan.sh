@@ -44,6 +44,10 @@ fi
 # layout (combined image-samplers + uniform buffers per-pipeline) hits the same code path.
 # Disabling argument buffers makes MoltenVK fall back to inline argument tables, which is
 # slower but actually renders pixels. Set MVK_USE_METAL_ARGUMENT_BUFFERS=1 to opt back in.
+#
+# Note: VulkanUtils now passes the same flag via VK_EXT_layer_settings during vkCreateInstance,
+# so this env var is redundant on MoltenVK >= 1.2.7. We keep it as a belt-and-braces fallback
+# for users on older MoltenVK builds where the extension is unavailable.
 if [[ -z "${MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS:-}" ]]; then
 	export MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0
 fi
