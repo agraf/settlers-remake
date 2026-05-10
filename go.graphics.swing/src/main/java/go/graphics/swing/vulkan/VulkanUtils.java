@@ -68,6 +68,7 @@ import org.lwjgl.vulkan.VkSemaphoreCreateInfo;
 import org.lwjgl.vulkan.VkShaderModuleCreateInfo;
 import org.lwjgl.vulkan.VkSpecializationInfo;
 import org.lwjgl.vulkan.VkSpecializationMapEntry;
+import org.lwjgl.vulkan.VkSubpassDependency;
 import org.lwjgl.vulkan.VkSubpassDescription;
 import org.lwjgl.vulkan.VkSurfaceFormatKHR;
 
@@ -242,6 +243,9 @@ public class VulkanUtils {
 					.sType(VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT)
 					.pSettings(settings);
 			pNext = layerSettings.address();
+			System.err.println("[VK-INST] applying MoltenVK layer-settings: MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0 via VK_EXT_layer_settings");
+		} else if(Platform.get() == Platform.MACOSX) {
+			System.err.println("[VK-INST] VK_EXT_layer_settings unavailable; relying on MVK_CONFIG_* env vars. available=" + extensions);
 		}
 
 		VkInstanceCreateInfo createInfo = VkInstanceCreateInfo.calloc(stack)
@@ -486,10 +490,38 @@ public class VulkanUtils {
 				.pColorAttachments(colorAttachmentRef)
 				.pDepthStencilAttachment(depthAttachmentRef);
 
+		// Without explicit subpass dependencies the render pass relies on the
+		// implicit external -> subpass dependency, which sits at TOP_OF_PIPE with
+		// no access mask. On most desktop drivers that still happens to respect
+		// the swapchain-acquire semaphore (waited on COLOR_ATTACHMENT_OUTPUT in
+		// VulkanSurfaceOutput.configureDrawCommand), but on MoltenVK the implicit
+		// layout transition UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL is scheduled as
+		// a Metal blit encoder that can run before the previous frame's present
+		// has actually released the swapchain image - resulting in intermittent
+		// black or stale framebuffers. Likewise the implicit subpass -> external
+		// dependency uses BOTTOM_OF_PIPE with no access mask, which doesn't make
+		// our color writes available to the subsequent vkQueuePresentKHR.
+		VkSubpassDependency.Buffer dependencies = VkSubpassDependency.calloc(2, stack);
+		dependencies.get(0)
+				.srcSubpass(VK_SUBPASS_EXTERNAL)
+				.dstSubpass(0)
+				.srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT)
+				.dstStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT)
+				.srcAccessMask(0)
+				.dstAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+		dependencies.get(1)
+				.srcSubpass(0)
+				.dstSubpass(VK_SUBPASS_EXTERNAL)
+				.srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+				.dstStageMask(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
+				.srcAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+				.dstAccessMask(0);
+
 		VkRenderPassCreateInfo renderPassCreateInfo = VkRenderPassCreateInfo.calloc(stack)
 				.sType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO)
 				.pAttachments(attachments)
-				.pSubpasses(subPass);
+				.pSubpasses(subPass)
+				.pDependencies(dependencies);
 
 		LongBuffer renderPassBfr = stack.callocLong(1);
 		if(vkCreateRenderPass(device, renderPassCreateInfo, null, renderPassBfr) != VK_SUCCESS) {

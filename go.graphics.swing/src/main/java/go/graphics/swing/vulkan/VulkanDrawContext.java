@@ -116,7 +116,33 @@ public class VulkanDrawContext extends GLDrawContext implements VkDrawContext {
 
 	protected final List<VulkanTextureHandle> textures = new ArrayList<>();
 
+	// Resources whose destruction has been deferred until the GPU is known to be
+	// idle on the work that referenced them. Drained at the start of every frame
+	// once the per-frame fence has been awaited (see startFrame -> drainPendingDestroys()).
+	private final java.util.Deque<Runnable> pendingDestroys = new java.util.ArrayDeque<>();
+
 	private float guiScale;
+
+	/**
+	 * Queue a resource destruction so it happens at the start of a future frame,
+	 * after we have waited on the per-frame fence and know that the GPU is no
+	 * longer executing the command buffer that may have referenced the resource.
+	 * Safe to call at any point during command-buffer recording.
+	 */
+	public void deferDestroy(Runnable destroyTask) {
+		pendingDestroys.add(destroyTask);
+	}
+
+	private void drainPendingDestroys() {
+		while (!pendingDestroys.isEmpty()) {
+			Runnable task = pendingDestroys.poll();
+			try {
+				task.run();
+			} catch (Throwable t) {
+				System.err.println("[VK] deferred destroy failed: " + t);
+			}
+		}
+	}
 
 	private static boolean physicalDeviceSupportsPortabilitySubset(MemoryStack stack, VkPhysicalDevice physicalDevice) {
 		IntBuffer count = stack.ints(0);
@@ -248,6 +274,9 @@ public class VulkanDrawContext extends GLDrawContext implements VkDrawContext {
 		closeMutex.release();
 
 		vkDeviceWaitIdle(device);
+
+		// GPU is idle; flush any destroys that were queued but not yet executed.
+		drainPendingDestroys();
 
 		for(long sampler : samplers) {
 			if(sampler != 0) vkDestroySampler(device, sampler, null);
@@ -870,6 +899,13 @@ public class VulkanDrawContext extends GLDrawContext implements VkDrawContext {
 	}
 
 	private void doResize(int width, int height) {
+		// Make sure no command buffer is still consuming the old swapchain images,
+		// framebuffers or depth attachment before we destroy them. Previously this
+		// invariant was provided by vkQueueWaitIdle at the end of each present;
+		// with per-frame fences instead, the GPU may still be in flight when we
+		// arrive here.
+		vkDeviceWaitIdle(device);
+
 		Dimension newSize = output.resize(new Dimension(width, height));
 		if(newSize == null) return;
 		fbWidth = newSize.width;
@@ -918,13 +954,25 @@ public class VulkanDrawContext extends GLDrawContext implements VkDrawContext {
 		try {
 			super.startFrame();
 
+			if(!output.startFrame()) {
+				return;
+			}
+
+			// output.startFrame() has just waited on the per-frame fence, so the
+			// previous frame's GPU work has completed. It is now safe to:
+			//   1. drain queued resource destructions (textures, etc.) that were
+			//      deferred because they may have been referenced by N-1.
+			//   2. update descriptor sets via texture.tick(), since N-1's command
+			//      buffer has finished consuming them.
+			// Both of these would otherwise be undefined behaviour (a freed
+			// Metal texture or a mutated descriptor set during command-buffer
+			// execution shows up as VK_ERROR_OUT_OF_DEVICE_MEMORY /
+			// kIOGPUCommandBufferCallbackErrorInvalidResource on MoltenVK).
+			drainPendingDestroys();
 			for (VulkanTextureHandle texture : textures) {
 				texture.tick();
 			}
 
-			if(!output.startFrame()) {
-				return;
-			}
 			renderPassBeginInfo.framebuffer(output.getFramebuffer());
 
 			if(vkBeginCommandBuffer(graphCommandBuffer, commandBufferBeginInfo) != VK_SUCCESS) return;
@@ -1050,11 +1098,15 @@ public class VulkanDrawContext extends GLDrawContext implements VkDrawContext {
 
 				output.configureDrawCommand(stack, graphSubmitInfo);
 
-				int error = vkQueueSubmit(queueManager.getGraphicsQueue(), graphSubmitInfo, VK_NULL_HANDLE);
+				long submitFence = output.acquireSubmitFence();
+				int error = vkQueueSubmit(queueManager.getGraphicsQueue(), graphSubmitInfo, submitFence);
 				if(error != VK_SUCCESS) {
 					System.err.println("[VK-FRAME] vkQueueSubmit FAILED: " + error);
 				} else {
 					cmdBfrSend = true;
+					if(submitFence != VK_NULL_HANDLE) {
+						output.onSubmitFenceInFlight();
+					}
 				}
 			}
 
