@@ -22,6 +22,7 @@ import java.awt.geom.AffineTransform;
 
 import javax.swing.SwingUtilities;
 
+import go.graphics.RenderScale;
 import go.graphics.swing.ContextContainer;
 
 public abstract class ContextCreator<T extends Component> implements ComponentListener{
@@ -76,7 +77,8 @@ public abstract class ContextCreator<T extends Component> implements ComponentLi
 		if(window == null) return;
 
 		synchronized (wnd_lock) {
-			AffineTransform scaleInfo = canvas.getGraphicsConfiguration().getDefaultTransform();
+			java.awt.GraphicsConfiguration gc = canvas.getGraphicsConfiguration();
+			AffineTransform scaleInfo = (gc != null) ? gc.getDefaultTransform() : null;
 
 			double scaleX = 1;
 			double scaleY = 1;
@@ -84,8 +86,9 @@ public abstract class ContextCreator<T extends Component> implements ComponentLi
 				scaleX = scaleInfo.getScaleX();
 				scaleY = scaleInfo.getScaleX();
 			}
-			new_width = (int) (canvas.getWidth()*scaleX);
-			new_height = (int) (canvas.getHeight()*scaleY);
+			double divisor = RenderScale.getDivisor();
+			new_width = (int) (canvas.getWidth()*scaleX/divisor);
+			new_height = (int) (canvas.getHeight()*scaleY/divisor);
 			change_res = true;
 
 			if(new_width == 0) new_width = 1;

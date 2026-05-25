@@ -19,6 +19,7 @@ import java.awt.Color;
 
 import go.graphics.DrawmodeListener;
 import go.graphics.RedrawListener;
+import go.graphics.RenderScale;
 import go.graphics.area.Area;
 import go.graphics.event.GOEvent;
 import go.graphics.swing.contextcreator.EBackendType;
@@ -52,6 +53,10 @@ public class AreaContainer extends ContextContainer implements RedrawListener {
 		super(backend, new BorderLayout(), debug);
 		this.area = area;
 		this.guiScale = guiScale;
+
+		// Trigger render-divisor detection so the log line shows up at startup,
+		// not the first time the Vulkan canvas paints.
+		RenderScale.getDivisor();
 
 		if(cc instanceof DrawmodeListener) {
 			area.setDrawmodeListener((DrawmodeListener) cc);

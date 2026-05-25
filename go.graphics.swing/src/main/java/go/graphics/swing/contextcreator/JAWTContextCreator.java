@@ -26,6 +26,7 @@ import java.awt.Canvas;
 import java.awt.Graphics;
 import java.awt.geom.AffineTransform;
 
+import go.graphics.RenderScale;
 import go.graphics.swing.ContextContainer;
 import go.graphics.swing.event.swingInterpreter.GOSwingEventConverter;
 
@@ -133,11 +134,14 @@ public abstract class JAWTContextCreator extends ContextCreator {
 						// alone leaves the swapchain at 1x1 and the canvas paints black. Reconcile
 						// against the live canvas geometry here, scaled by the AWT HiDPI factor so
 						// the framebuffer matches the on-screen backing-store size.
-						AffineTransform scaleInfo = canvas.getGraphicsConfiguration().getDefaultTransform();
+						// canvas.getGraphicsConfiguration() can be null briefly during peer reattach.
+						java.awt.GraphicsConfiguration gc = canvas.getGraphicsConfiguration();
+						AffineTransform scaleInfo = (gc != null) ? gc.getDefaultTransform() : null;
 						double scaleX = scaleInfo != null ? scaleInfo.getScaleX() : 1.0;
 						double scaleY = scaleInfo != null ? scaleInfo.getScaleY() : 1.0;
-						int curW = Math.max(1, (int) (canvas.getWidth() * scaleX));
-						int curH = Math.max(1, (int) (canvas.getHeight() * scaleY));
+						double divisor = RenderScale.getDivisor();
+						int curW = Math.max(1, (int) (canvas.getWidth() * scaleX / divisor));
+						int curH = Math.max(1, (int) (canvas.getHeight() * scaleY / divisor));
 						if (curW != new_width || curH != new_height) {
 							new_width = curW;
 							new_height = curH;
