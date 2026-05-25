@@ -35,6 +35,7 @@ import java.lang.reflect.Field;
 import java.util.EnumSet;
 import java.util.Set;
 
+import go.graphics.RenderScale;
 import go.graphics.UIPoint;
 import go.graphics.event.GOEventHandlerProvider;
 import go.graphics.event.command.EModifier;
@@ -74,7 +75,11 @@ public class GOSwingEventConverter extends AbstractEventConverter
 		super(provider);
 		this.scaleFactor = () -> {
 			AffineTransform trans = component.getGraphicsConfiguration().getDefaultTransform();
-			return (trans != null) ? trans.getScaleX() : 1.0;
+			double awtScale = (trans != null) ? trans.getScaleX() : 1.0;
+			// The framebuffer (and hence the renderer's coord system) is divided by
+			// RenderScale.getDivisor() in JAWTContextCreator/ContextCreator. Mirror the
+			// same divisor on input coords so clicks land where the user sees them.
+			return awtScale / RenderScale.getDivisor();
 		};
 
 		component.setFocusTraversalKeysEnabled(false);

@@ -69,6 +69,13 @@ fi
 
 cd "$ROOT"
 
+# Render-resolution divisor: the renderer draws into a framebuffer N times smaller
+# than the on-screen surface, then CoreAnimation upscales bilinearly at present
+# time, doubling the apparent size of fixed-pixel UI elements.
+#   - "auto" (default): pick 2.0 on Retina/HiDPI screens, 1.0 otherwise
+#   - explicit number (e.g. 1.0, 1.5, 2.0): use that value as-is
+RENDER_DIVISOR="${JSETTLERS_RENDER_DIVISOR:-auto}"
+
 if [[ -n "${VK_ICD_FILENAMES:-}" ]]; then
 	echo "[moltenvk] VK_ICD_FILENAMES=$VK_ICD_FILENAMES"
 fi
@@ -76,6 +83,13 @@ if [[ -n "${JSETTLERS_VK_DEBUG:-}" ]]; then
 	echo "[moltenvk] MVK_CONFIG_LOG_LEVEL=${MVK_CONFIG_LOG_LEVEL}"
 	echo "[moltenvk] MVK_CONFIG_DEBUG=${MVK_CONFIG_DEBUG}"
 	echo "[moltenvk] MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=${MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS}"
+	echo "[render]   go.graphics.render-divisor=${RENDER_DIVISOR}"
 fi
+
+# Forward -D system properties into the JVM that the gradle 'run' task spawns
+# (the application JVM is a child process; -D after `gradlew run` only reaches
+# the gradle daemon). JAVA_TOOL_OPTIONS is honoured by every JVM in the env.
+PROP_OPTS="-Dgo.graphics.render-divisor=${RENDER_DIVISOR}"
+export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} ${PROP_OPTS}"
 
 exec ./gradlew run "$@"

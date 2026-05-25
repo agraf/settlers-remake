@@ -25,6 +25,7 @@ import jsettlers.common.menu.IMapInterfaceConnector;
 import jsettlers.common.menu.IStartedGame;
 import jsettlers.common.menu.IStartingGame;
 import jsettlers.common.resources.ResourceManager;
+import go.graphics.RenderScale;
 import jsettlers.graphics.localization.AbstractLabels;
 import jsettlers.graphics.localization.Labels;
 import jsettlers.logic.constants.MatchConstants;
@@ -63,6 +64,10 @@ public class SwingManagedJSettlers {
 
 		setupMacOSVulkan();
 		setupResources(true, args);
+
+		// Probe the render-divisor early so the auto-detect log line shows up at
+		// startup, not the first time the Vulkan canvas paints.
+		RenderScale.getDivisor();
 
 		JSettlersFrame settlersFrame = createJSettlersFrame();
 		handleStartOptions(settlersFrame);
