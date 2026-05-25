@@ -35,7 +35,15 @@ public abstract class ProgressingObject extends AbstractObjectsManagerObject {
 
 	@Override
 	public float getStateProgress() {
-		float progress = (MatchConstants.clock().getTime() - startTime) / ((float) duration);
+		// MatchConstants.clock() is null outside an active match (e.g. when a map
+		// preview is rendered in a menu / editor). In that case the object cannot
+		// progress, so report 1.0 so it draws as fully grown / completed - the same
+		// state it would have in a paused / saved game preview.
+		jsettlers.network.client.interfaces.IGameClock clock = MatchConstants.clock();
+		if (clock == null) {
+			return 1f;
+		}
+		float progress = (clock.getTime() - startTime) / ((float) duration);
 		if (progress < 1) {
 			return progress;
 		} else {
